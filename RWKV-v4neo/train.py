@@ -111,6 +111,10 @@ if __name__ == "__main__":
     parser.add_argument("--my_testing", default='', type=str)
     parser.add_argument("--my_exit", default=99999999, type=int)
     parser.add_argument("--my_exit_tokens", default=-1, type=int)
+    # activate retnet official model implementation 
+    parser.add_argument("--use_retnet", default=False, action='store_true')
+    parser.add_argument("--retnet_official_name", default='retnet_base', type=str)
+
 
     parser = Trainer.add_argparse_args(parser)
     args = parser.parse_args()
@@ -297,16 +301,20 @@ if __name__ == "__main__":
     train_data = MyDataset(args)
     args.vocab_size = train_data.vocab_size
 
-    if args.data_type == 'wds_img':
-        from src.model_img import RWKV_IMG
-        model = RWKV_IMG(args)
+    if args.use_retnet:
+        from retnet.wrap_retnet import get_retnet_model
+        model = get_retnet_model(args)
     else:
-        if args.dropout > 0:
-            from src.model_drop2 import RWKV
-            model = RWKV(args)
+        if args.data_type == 'wds_img':
+            from src.model_img import RWKV_IMG
+            model = RWKV_IMG(args)
         else:
-            from src.model import RWKV
-            model = RWKV(args)
+            if args.dropout > 0:
+                from src.model_drop2 import RWKV
+                model = RWKV(args)
+            else:
+                from src.model import RWKV
+                model = RWKV(args)
 
     if len(args.load_model) == 0 or args.my_pile_stage == 1:  # shall we build the initial weights?
         init_weight_name = f"{args.proj_dir}/rwkv-init.pth"

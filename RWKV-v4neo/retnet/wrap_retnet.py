@@ -133,6 +133,17 @@ class Wrapper_RetNet(pl.LightningModule):
         return False
 
     def configure_optimizers(self):
+        '''
+            Taken from fairseq/fairseq/optim/adam.py
+            @register_optimizer("adam", dataclass=FairseqAdamConfig)
+            class FairseqAdam(FairseqOptimizer):
+                """Adam optimizer for fairseq.
+
+                Important note: this optimizer corresponds to the "AdamW" variant of
+                Adam in its weight decay behavior. As such, it is most closely
+                analogous to torch.optim.AdamW from PyTorch.
+                """
+        '''
         args = self.args
         #NOTE: just quickly initialize to make code works.
         param_dict = {n: p for n, p in self.named_parameters()}

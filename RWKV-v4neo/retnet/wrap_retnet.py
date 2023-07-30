@@ -65,19 +65,34 @@ class Wrapper_RetNet(pl.LightningModule):
         return self.args.max_target_positions
 
     def generate_init_weight(self):
+        '''
+            Accroding to https://arxiv.org/pdf/2203.00555.pdf and https://arxiv.org/pdf/2307.08621.pdf,
+            retnet use xavier_normal_ for all most of layers. most of layers in torchscale has included this.
+            TODO: need to make sure what to do with embedding.
+
+            embedding initialization is from fairseq repo:
+
+            def Embedding(num_embeddings, embedding_dim, padding_idx):
+                m = nn.Embedding(num_embeddings, embedding_dim, padding_idx=padding_idx)
+                nn.init.normal_(m.weight, mean=0, std=embedding_dim ** -0.5)
+                nn.init.constant_(m.weight[padding_idx], 0)
+                return m
+
+            o_proj is from torchscale repo.
+            torch.nn.init.normal_(
+                output_projection.weight, mean=0, std=args.decoder_embed_dim**-0.5
+            )
+
+            layers like 'ffn', 'v_proj', 'out_proj' 'q_proj', 'k_proj' use nn.init.xavier_normal_ when 
+            initializeing MultiScaleRetention in reset_parameters function
+
+        '''
         #NOTE: just quickly initialize to make code works.
         m = {}
         for n in self.state_dict():
             p = self.state_dict()[n]
             shape = p.shape
-            if "layer_norm" in n or "layernorm" in n:
-                m[n] = p
-            else:
-                if self.args.accelerator.upper() == "GPU":
-                    m[n] = torch.empty(shape, device="cuda")
-                else:
-                    m[n] = torch.empty(shape)
-                nn.init.uniform_(m[n])
+            m[n] = p             
         gc.collect()
         torch.cuda.empty_cache()
         return m

@@ -51,9 +51,17 @@ class Wrapper_RetNet(pl.LightningModule):
         super().__init__()
         self.args = args
 
-        # Initial Embedding with RWKV style, instead of using fairseq.
         embedding = nn.Embedding(args.vocab_size, args.decoder_embed_dim)
+        nn.init.normal_(embedding.weight, mean=0, std=args.decoder_embed_dim ** -0.5)
+        # TODO: not sure how padding_idx works in fairseq framework, check later.
+        # nn.init.constant_(embedding.weight[padding_idx], 0)
+        
         output_projection = nn.Linear(args.decoder_embed_dim, args.vocab_size, bias=False)
+        torch.nn.init.normal_(
+            output_projection.weight, mean=0, std=args.decoder_embed_dim**-0.5
+        )
+        
+        
         self.retnet = RetNetDecoder(args, embedding, output_projection)
 
     def forward(self, src_tokens, **kwargs):
@@ -84,15 +92,20 @@ class Wrapper_RetNet(pl.LightningModule):
             )
 
             layers like 'ffn', 'v_proj', 'out_proj' 'q_proj', 'k_proj' use nn.init.xavier_normal_ when 
-            initializeing MultiScaleRetention in reset_parameters function
-
+            initializeing MultiScaleRetention/FeedForwardNetwork with reset_parameters function
+            
+            Seems no special initialzation in ffn/final layer norm, means torch default when initialized:
+            ones(weight); zeros(bias)
+            
+            The only remain layer is RetNetRelPos, was initialized with some hard coded function, based on config parameters.
         '''
-        #NOTE: just quickly initialize to make code works.
+        #Nothing need to be initialize here, so just copy the state dict for saving.
         m = {}
         for n in self.state_dict():
+            print(n)
             p = self.state_dict()[n]
             shape = p.shape
-            m[n] = p             
+            m[n] = p
         gc.collect()
         torch.cuda.empty_cache()
         return m

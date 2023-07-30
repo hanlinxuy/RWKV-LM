@@ -303,6 +303,7 @@ if __name__ == "__main__":
 
     if args.use_retnet:
         from retnet.wrap_retnet import get_retnet_model
+        print("USING RETNET WRAPPER")
         model = get_retnet_model(args)
     else:
         if args.data_type == 'wds_img':

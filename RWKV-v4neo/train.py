@@ -156,8 +156,9 @@ if __name__ == "__main__":
         args.dim_att = args.n_embd
     if args.dim_ffn <= 0:
         args.dim_ffn = args.n_embd * 4
-
-    if args.data_type == "wds_img":
+    if args.use_retnet:
+        args.run_name = f"{args.vocab_size} ctx{args.ctx_len} arch-{args.retnet_official_name}"
+    elif args.data_type == "wds_img":
         args.run_name = f"v{args.my_img_version}-{args.my_img_size}-{args.my_img_bit}bit-{args.my_img_clip}x{args.my_img_clip_scale}"
         args.proj_dir = f"{args.proj_dir}-{args.run_name}"
     else:

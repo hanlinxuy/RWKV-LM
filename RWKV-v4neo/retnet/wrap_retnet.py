@@ -97,12 +97,16 @@ class Wrapper_RetNet(pl.LightningModule):
             Seems no special initialzation in ffn/final layer norm, means torch default when initialized:
             ones(weight); zeros(bias)
             
-            The only remain layer is RetNetRelPos, was initialized with some hard coded function, based on config parameters.
+            The only remain layer is RetNetRelPos, was initialized with some hard coded function, based on config parameters:
+            angle = 1.0 / (10000 ** torch.linspace(0, 1, args.decoder_embed_dim // args.decoder_retention_heads // 2))
+            angle = angle.unsqueeze(-1).repeat(1, 2).flatten()
+            decay = torch.log(1 - 2 ** (-5 - torch.arange(args.decoder_retention_heads, dtype=torch.float)))
         '''
-        #Nothing need to be initialize here, so just copy the state dict for saving.
+        # Nothing need to be initialize here, so just copy the state dict for saving.
         m = {}
         for n in self.state_dict():
-            print(n)
+            if not self.args.deepnorm:
+                NotImplementedError
             p = self.state_dict()[n]
             shape = p.shape
             m[n] = p
@@ -147,16 +151,23 @@ class Wrapper_RetNet(pl.LightningModule):
         args = self.args
         #NOTE: just quickly initialize to make code works.
         param_dict = {n: p for n, p in self.named_parameters()}
-        optim_groups = [ {"params": [param_dict[n] for n in param_dict], 
-                        "weight_decay": 0.0, "my_lr_scale": 1.0},]
+        optim_groups = [ {"params": [param_dict[n] for n in param_dict], "weight_decay":0.0, "my_lr_scale":1.0},]
+        # RETNET PAPER USED weight_decay = 0.01
         if self.deepspeed_offload:
             return DeepSpeedCPUAdam(optim_groups, lr=self.args.lr_init, 
                         betas=self.args.betas, eps=self.args.adam_eps, 
-                        bias_correction=True, adamw_mode=False, weight_decay=0, amsgrad=False)
+                        bias_correction=True, adamw_mode=False, weight_decay=args.weight_decay, amsgrad=False)
         return FusedAdam(optim_groups, lr=self.args.lr_init, 
                         betas=self.args.betas, eps=self.args.adam_eps, 
-                        bias_correction=True, adam_w_mode=False, weight_decay=0, amsgrad=False)
+                        bias_correction=True, adam_w_mode=False, weight_decay=args.weight_decay, amsgrad=False)
 
+def retnet_rwkv_config_amap(args):
+    #NOTE: I am not confident about my understanding.
+    setattr(args, "decoder_embed_dim", args.n_embd)
+    setattr(args, "decoder_ffn_embed_dim", args.dim_ffn)
+    setattr(args, "decoder_attention_heads", args.head_qk)
+    setattr(args, "decoder_layers", args.n_layer)
+    
 def get_retnet_model(args):
     actual_configuration = None
     if args.retnet_official_name == "retnet_base":
@@ -173,8 +184,16 @@ def get_retnet_model(args):
         actual_configuration = retnet_13b
     elif args.retnet_official_name == "retnet_65b":
         actual_configuration = retnet_65b
+    elif args.retnet_official_name == "retnet_rwkvconf":
+        actual_configuration = retnet_rwkv_config_amap
     else:
         NotImplementedError
+    
+    # use deepnorm to initialize
+    setattr(args, "deepnorm", True)
+    # this is how fairseq called ctxlen
+    setattr(args, "tokens_per_sample", args.ctx_len)
+    
     
     actual_configuration(args)
     retnet_config = Wrapper_RetNetConfig()

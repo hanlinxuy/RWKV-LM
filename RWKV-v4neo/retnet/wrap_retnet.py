@@ -51,9 +51,17 @@ class Wrapper_RetNet(pl.LightningModule):
         super().__init__()
         self.args = args
 
-        # Initial Embedding with RWKV style, instead of using fairseq.
         embedding = nn.Embedding(args.vocab_size, args.decoder_embed_dim)
+        nn.init.normal_(embedding.weight, mean=0, std=args.decoder_embed_dim ** -0.5)
+        # TODO: not sure how padding_idx works in fairseq framework, check later.
+        # nn.init.constant_(embedding.weight[padding_idx], 0)
+        
         output_projection = nn.Linear(args.decoder_embed_dim, args.vocab_size, bias=False)
+        torch.nn.init.normal_(
+            output_projection.weight, mean=0, std=args.decoder_embed_dim**-0.5
+        )
+        
+        
         self.retnet = RetNetDecoder(args, embedding, output_projection)
 
     def forward(self, src_tokens, **kwargs):
@@ -65,19 +73,43 @@ class Wrapper_RetNet(pl.LightningModule):
         return self.args.max_target_positions
 
     def generate_init_weight(self):
-        #NOTE: just quickly initialize to make code works.
+        '''
+            Accroding to https://arxiv.org/pdf/2203.00555.pdf and https://arxiv.org/pdf/2307.08621.pdf,
+            retnet use xavier_normal_ for all most of layers. most of layers in torchscale has included this.
+            TODO: need to make sure what to do with embedding.
+
+            embedding initialization is from fairseq repo:
+
+            def Embedding(num_embeddings, embedding_dim, padding_idx):
+                m = nn.Embedding(num_embeddings, embedding_dim, padding_idx=padding_idx)
+                nn.init.normal_(m.weight, mean=0, std=embedding_dim ** -0.5)
+                nn.init.constant_(m.weight[padding_idx], 0)
+                return m
+
+            o_proj is from torchscale repo.
+            torch.nn.init.normal_(
+                output_projection.weight, mean=0, std=args.decoder_embed_dim**-0.5
+            )
+
+            layers like 'ffn', 'v_proj', 'out_proj' 'q_proj', 'k_proj' use nn.init.xavier_normal_ when 
+            initializeing MultiScaleRetention/FeedForwardNetwork with reset_parameters function
+            
+            Seems no special initialzation in ffn/final layer norm, means torch default when initialized:
+            ones(weight); zeros(bias)
+            
+            The only remain layer is RetNetRelPos, was initialized with some hard coded function, based on config parameters:
+            angle = 1.0 / (10000 ** torch.linspace(0, 1, args.decoder_embed_dim // args.decoder_retention_heads // 2))
+            angle = angle.unsqueeze(-1).repeat(1, 2).flatten()
+            decay = torch.log(1 - 2 ** (-5 - torch.arange(args.decoder_retention_heads, dtype=torch.float)))
+        '''
+        # Nothing need to be initialize here, so just copy the state dict for saving.
         m = {}
         for n in self.state_dict():
+            if not self.args.deepnorm:
+                NotImplementedError
             p = self.state_dict()[n]
             shape = p.shape
-            if "layer_norm" in n or "layernorm" in n:
-                m[n] = p
-            else:
-                if self.args.accelerator.upper() == "GPU":
-                    m[n] = torch.empty(shape, device="cuda")
-                else:
-                    m[n] = torch.empty(shape)
-                nn.init.uniform_(m[n])
+            m[n] = p
         gc.collect()
         torch.cuda.empty_cache()
         return m
@@ -105,19 +137,37 @@ class Wrapper_RetNet(pl.LightningModule):
         return False
 
     def configure_optimizers(self):
+        '''
+            Taken from fairseq/fairseq/optim/adam.py
+            @register_optimizer("adam", dataclass=FairseqAdamConfig)
+            class FairseqAdam(FairseqOptimizer):
+                """Adam optimizer for fairseq.
+
+                Important note: this optimizer corresponds to the "AdamW" variant of
+                Adam in its weight decay behavior. As such, it is most closely
+                analogous to torch.optim.AdamW from PyTorch.
+                """
+        '''
         args = self.args
         #NOTE: just quickly initialize to make code works.
         param_dict = {n: p for n, p in self.named_parameters()}
-        optim_groups = [ {"params": [param_dict[n] for n in param_dict], 
-                        "weight_decay": 0.0, "my_lr_scale": 1.0},]
+        optim_groups = [ {"params": [param_dict[n] for n in param_dict], "weight_decay":0.0, "my_lr_scale":1.0},]
+        # RETNET PAPER USED weight_decay = 0.01
         if self.deepspeed_offload:
             return DeepSpeedCPUAdam(optim_groups, lr=self.args.lr_init, 
                         betas=self.args.betas, eps=self.args.adam_eps, 
-                        bias_correction=True, adamw_mode=False, weight_decay=0, amsgrad=False)
+                        bias_correction=True, adamw_mode=False, weight_decay=args.weight_decay, amsgrad=False)
         return FusedAdam(optim_groups, lr=self.args.lr_init, 
                         betas=self.args.betas, eps=self.args.adam_eps, 
-                        bias_correction=True, adam_w_mode=False, weight_decay=0, amsgrad=False)
+                        bias_correction=True, adam_w_mode=False, weight_decay=args.weight_decay, amsgrad=False)
 
+def retnet_rwkv_config_amap(args):
+    #NOTE: I am not confident about my understanding.
+    setattr(args, "decoder_embed_dim", args.n_embd)
+    setattr(args, "decoder_ffn_embed_dim", args.dim_ffn)
+    setattr(args, "decoder_attention_heads", args.head_qk)
+    setattr(args, "decoder_layers", args.n_layer)
+    
 def get_retnet_model(args):
     actual_configuration = None
     if args.retnet_official_name == "retnet_base":
@@ -134,8 +184,16 @@ def get_retnet_model(args):
         actual_configuration = retnet_13b
     elif args.retnet_official_name == "retnet_65b":
         actual_configuration = retnet_65b
+    elif args.retnet_official_name == "retnet_rwkvconf":
+        actual_configuration = retnet_rwkv_config_amap
     else:
         NotImplementedError
+    
+    # use deepnorm to initialize
+    setattr(args, "deepnorm", True)
+    # this is how fairseq called ctxlen
+    setattr(args, "tokens_per_sample", args.ctx_len)
+    
     
     actual_configuration(args)
     retnet_config = Wrapper_RetNetConfig()

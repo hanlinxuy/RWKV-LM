@@ -4,6 +4,7 @@
 
 import os, math, gc, importlib
 import torch
+from torch import Tensor
 # torch._C._jit_set_profiling_executor(True)
 # torch._C._jit_set_profiling_mode(True)
 import torch.nn as nn
@@ -32,7 +33,7 @@ FP16_LIMIT = 65504
 GRAD_LIMIT = 4
 LARGE_GRAD_LIMIT = 1
 
-def sym_protector(torch.autograd.Function):
+class sym_protector(torch.autograd.Function):
     @staticmethod
     def forward(ctx, tensor_in):
         tensor_out = torch.nan_to_num(tensor_in, nan=0.0, posinf=FP16_LIMIT, neginf=-FP16_LIMIT)
@@ -43,7 +44,7 @@ def sym_protector(torch.autograd.Function):
         grad_tensor_out = torch.clip(grad_tensor_out, -GRAD_LIMIT, GRAD_LIMIT)
         return grad_tensor_out
 
-def large_tensor_sym_protector(torch.autograd.Function):
+class large_tensor_sym_protector(torch.autograd.Function):
     @staticmethod
     def forward(ctx, tensor_in):
         tensor_out = torch.nan_to_num(tensor_in, nan=0.0, posinf=FP16_LIMIT, neginf=-FP16_LIMIT)
@@ -54,7 +55,7 @@ def large_tensor_sym_protector(torch.autograd.Function):
         grad_tensor_out = torch.clip(grad_tensor_out, -LARGE_GRAD_LIMIT, LARGE_GRAD_LIMIT)
         return grad_tensor_out
     
-def asym_protector(torch.autograd.Function):
+class asym_protector(torch.autograd.Function):
     @staticmethod
     def forward(ctx, tensor_in):
         #NOTE: here 1e-5 is just I prefer.
@@ -67,32 +68,29 @@ def asym_protector(torch.autograd.Function):
         return grad_tensor_out
 
 # note: I am not sure how to protect the bias.
-def FP16_LINEAR(nn.Linear):
+class FP16_LINEAR(nn.Linear):
      def forward(self, input: Tensor) -> Tensor:
         weight = sym_protector.apply(self.weight)
         input = asym_protector.apply(input)
         return  asym_protector.apply(F.linear(input, weight, self.bias))
 
-def FP16_LARGETENSOR_LINEAR(nn.Linear):
+class FP16_LARGETENSOR_LINEAR(nn.Linear):
      def forward(self, input: Tensor) -> Tensor:
         weight = large_tensor_sym_protector.apply(self.weight)
         input = asym_protector.apply(input)
         return  asym_protector.apply(F.linear(input, weight, self.bias))
     
-def FP16_EMBEDDING(nn.Embedding):
+class FP16_EMBEDDING(nn.Embedding):
     def forward(self, input: Tensor) -> Tensor:
         weight = large_tensor_sym_protector.apply(self.weight)
         input = asym_protector.apply(input)
-        return asym_protector.apply(F.embedding(
-            input, weight, self.padding_idx, self.max_norm,
-            self.norm_type, self.scale_grad_by_freq, self.sparse))
+        return asym_protector.apply(F.embedding( input, weight, self.padding_idx, self.max_norm, self.norm_type, self.scale_grad_by_freq, self.sparse))
 
-def FP16_LAYERNORM(nn.LayerNorm):
+class FP16_LAYERNORM(nn.LayerNorm):
     def forward(self, input: Tensor) -> Tensor:
         weight = sym_protector.apply(self.weight)
         input = asym_protector.apply(input)
-        return  asym_protector.apply(F.layer_norm(
-            input, self.normalized_shape, weight, self.bias, self.eps))
+        return  asym_protector.apply(F.layer_norm(input, self.normalized_shape, weight, self.bias, self.eps))
     
 MyModule = nn.Module
 MyFunction = __nop
@@ -298,7 +296,7 @@ class RWKV_ChannelMix(MyModule):
         xk = x * tmk + xx * (1 - tmk)
         xr = x * tmr + xx * (1 - tmr)
         k = self.key(xk)
-        k = torch.clip(k, -255. 255)
+        k = torch.clip(k, -255., 255.)
         k = torch.square(torch.relu(k))
         kv = self.value(k)
         return asym_protector.apply(torch.sigmoid(self.receptance(xr)) * kv)

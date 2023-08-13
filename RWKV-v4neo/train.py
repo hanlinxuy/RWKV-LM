@@ -114,6 +114,8 @@ if __name__ == "__main__":
     # activate retnet official model implementation 
     parser.add_argument("--use_retnet", default=False, action='store_true')
     parser.add_argument("--retnet_official_name", default='retnet_base', type=str)
+    # would be helpful if use more batches with fp16 training. 
+    parser.add_argument("--accumulate_grad_batches", default=1, type=int)
 
 
     parser = Trainer.add_argparse_args(parser)
@@ -273,6 +275,7 @@ if __name__ == "__main__":
             rank_zero_info("\n\nNote: you are using fp32 (very slow). Try bf16 / tf32 for faster training.\n\n")
     if args.precision == "fp16":
         rank_zero_info("\n\nNote: you are using fp16 (might overflow). Try bf16 / tf32 for stable training.\n\n")
+        
 
     os.environ["RWKV_JIT_ON"] = "1"
     if "deepspeed_stage_3" in args.strategy:
@@ -304,8 +307,12 @@ if __name__ == "__main__":
 
     if args.use_retnet:
         from retnet.wrap_retnet import get_retnet_model
-        print("USING RETNET WRAPPER")
+        rank_zero_info("USING RETNET WRAPPER")
         model = get_retnet_model(args)
+    elif args.precision=="fp16":
+        from src.model_fp16 import RWKV 
+        rank_zero_info("\n\nNote: Loading fp16 modified model. Recommend to use with deepspeed_stage_2_offload\n\n")
+        model = RWKV(args)
     else:
         if args.data_type == 'wds_img':
             from src.model_img import RWKV_IMG

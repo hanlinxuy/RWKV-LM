@@ -72,6 +72,8 @@ if __name__ == "__main__":
     parser.add_argument("--my_testing", default='', type=str)
     parser.add_argument("--my_exit", default=99999999, type=int)
     parser.add_argument("--my_exit_tokens", default=0, type=int)
+    parser.add_argument("--use_mamba", default=1, type=int)
+    parser.add_argument("--mamba_size", default="130m", type=str)
 
     if pl.__version__[0]=='2':
         parser.add_argument("--accelerator", default="gpu", type=str)
@@ -244,9 +246,12 @@ if __name__ == "__main__":
 
     train_data = MyDataset(args)
     args.vocab_size = train_data.vocab_size
-
-    from src.model import RWKV
-    model = RWKV(args)
+    if args.use_mamba == 1:
+        from src.mamba import WrappedMambaLHHeadModel
+        model = WrappedMambaLHHeadModel(args)
+    else:
+        from src.model import RWKV
+        model = RWKV(args)
 
     if len(args.load_model) == 0 or args.my_pile_stage == 1:  # shall we build the initial weights?
         init_weight_name = f"{args.proj_dir}/rwkv-init.pth"

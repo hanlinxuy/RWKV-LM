@@ -72,7 +72,7 @@ if __name__ == "__main__":
     parser.add_argument("--my_testing", default='', type=str)
     parser.add_argument("--my_exit", default=99999999, type=int)
     parser.add_argument("--my_exit_tokens", default=0, type=int)
-    parser.add_argument("--use_mamba", default=1, type=int)
+    parser.add_argument("--use_mamba", default=0, type=int)
     parser.add_argument("--mamba_size", default="130m", type=str)
 
     if pl.__version__[0]=='2':

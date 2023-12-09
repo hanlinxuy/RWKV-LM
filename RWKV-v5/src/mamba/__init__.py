@@ -31,6 +31,21 @@ class WrappedMambaLHHeadModel(pl.LightningModule):
     def __init__(self, args):
         super().__init__()
         self.args = args
+        '''
+        ssm cfg can be:{
+                "d_state": 16,
+                "d_conv": 4,
+                "expand": 2,
+                "dt_rank": "auto",
+                "dt_min": 0.001,
+                "dt_max": 0.1,
+                "dt_init": "random",
+                "dt_scale": 1.0,
+                "dt_init_floor": 1.0e-4,
+                "conv_bias": False,
+                "bias": False,
+            }
+        '''
         backbone_kwargs = {
             "ssm_cfg": {},
             "rms_norm": True,
@@ -39,9 +54,24 @@ class WrappedMambaLHHeadModel(pl.LightningModule):
             
         }
         
+        
         if args.mamba_size == "130m":
             args.n_layer = 24
             args.n_embd = 768
+        elif args.mamba_size == "370m":
+            args.n_layer = 48
+            args.n_embd = 1024
+        elif args.mamba_size == "790m":
+            args.n_layer = 48
+            args.n_embd = 1536
+        elif args.mamba_size == "1b4":
+            args.n_layer = 48
+            args.n_embd = 2048
+        elif args.mamba_size == "2b8":
+            args.n_layer = 64
+            args.n_embd = 2560
+        else:
+            print("use parameters from train.py")
             
         self.mamba_model = MambaLMHeadModel(
             d_model=args.n_embd,

@@ -3,4 +3,4 @@
     --ctx_len 128 --epoch_steps 1000 --epoch_count 20 --epoch_begin 0 --epoch_save 10 \
     --micro_bsz 16 --n_layer 12 --n_embd 768 --pre_ffn 0 --head_qk 0 \
     --lr_init 6e-4 --lr_final 1e-5 --warmup_steps 0 --beta1 0.9 --beta2 0.99 --adam_eps 1e-8 \
-    --accelerator gpu --devices 1 --precision fp32 --strategy deepspeed_stage_2 --grad_cp 1
+    --accelerator gpu --devices 1 --precision bf16 --strategy deepspeed_stage_2_offload --grad_cp 1 --use_mamba 1 --mamba_size 1b4
